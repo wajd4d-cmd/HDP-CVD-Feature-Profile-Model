@@ -1,32 +1,4 @@
-# Polymarket HFT Agent — Production Dependencies
-# ─────────────────────────────────────────────────────────────────────────────
-# Requires Python 3.11+. Tested on 3.11 and 3.12.
-# Pin minor versions; bump deliberately after staging validation.
-
-# ── Polymarket CLOB SDK ───────────────────────────────────────────────────────
-py-clob-client>=0.34.0,<1.0.0
-
-# ── Configuration & validation ────────────────────────────────────────────────
-pydantic>=2.0.0,<3.0.0
-pydantic-settings>=2.0.0,<3.0.0
-python-dotenv>=1.0.0,<2.0.0
-
-# ── HTTP client ───────────────────────────────────────────────────────────────
-httpx>=0.27.0,<1.0.0
-
-# ── Structured JSON logging ───────────────────────────────────────────────────
-# One JSON object per line — compatible with ELK, CloudWatch, Datadog, journald.
-# Upper bound widened to allow structlog 25.x on Python 3.12+.
-structlog>=24.0.0,<26.0.0
-
-# ── On-chain execution (Polygon / Gnosis CTF) ─────────────────────────────────
-# web3 v6.15+ uses ExtraDataToPOAMiddleware (replaces deprecated geth_poa_middleware).
-# v7.x maintains compatible API; capped at <8.0.0 until v8 API is validated.
-web3>=6.15.0,<8.0.0
-
-# ── Observability (Prometheus metrics endpoint) ───────────────────────────────
-prometheus-client>=0.20.0,<1.0.0
-
-# ── High-performance event loop (Linux / VPS only) ────────────────────────────
-# uvloop 0.21+ required for Python 3.12 compatibility.
-uvloop>=0.21.0; sys_platform != "win32"
+numpy
+scipy
+matplotlib
+streamlit
