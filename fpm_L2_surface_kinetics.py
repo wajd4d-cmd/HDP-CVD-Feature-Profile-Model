@@ -188,8 +188,14 @@ class SurfaceKineticsSolver:
         # Mean ion impact angle (sets the grazing sidewall heat fraction).
         self.theta_mean = np.radians(self._read_mean_ion_angle())
 
-        # Neutral precursor flux profile Gamma_g(z) = (1/4) n_g(z) v_th.
-        self.Gamma_g = 0.25 * np.asarray(transport.n_g, dtype=float) * self.v_th
+        # Depositing-precursor flux profile Gamma_g(z) = (1/4) n_dep(z) v_th.
+        # Only the Si-bearing fraction deposits film; fall back to the total
+        # neutral density scaled by f_precursor for duck-typed mock states.
+        n_dep = getattr(transport, "n_dep", None)
+        if n_dep is None:
+            n_dep = (np.asarray(transport.n_g, dtype=float)
+                     * float(getattr(self.plasma, "f_precursor", 1.0)))
+        self.Gamma_g = 0.25 * np.asarray(n_dep, dtype=float) * self.v_th
 
     # ----------------------------------------------------------- helpers
     def _read_mean_ion_angle(self) -> float:

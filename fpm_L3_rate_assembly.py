@@ -44,11 +44,16 @@ Layer:       L3 (this file implements ONLY L3).
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Tuple
 
 import numpy as np
 from scipy import constants as const
+
+# Module logger for the bias -> ion-energy -> sputter/deposition diagnostic.
+# Silent by default; enable with logging.getLogger("fpm.L3").setLevel(logging.DEBUG).
+log = logging.getLogger("fpm.L3")
 
 # =============================================================================
 # 1. PHYSICAL CONSTANTS (CODATA via scipy.constants)
@@ -163,10 +168,16 @@ class RateAssemblySolver:
         self.Gamma_i = getattr(surface, "Gamma_i", self.plasma.n_e * u_B)
         self.E_i_eV = float(self.plasma.mean_ion_energy_ev)
 
-        # Neutral precursor flux Gamma_g(z) = (1/4) n_g(z) v_th.
+        # Depositing-precursor flux Gamma_g(z) = (1/4) n_dep(z) v_th. Only the
+        # Si-bearing fraction deposits SiO2; fall back to total n_g * f_precursor
+        # for duck-typed mock states that predate the n_dep field.
         m_n = self.p.neutral_mass_amu * AMU
         self.v_th = np.sqrt(8.0 * K_B * self.p.gas_temp_k / (np.pi * m_n))
-        self.Gamma_g = 0.25 * np.asarray(transport.n_g, dtype=float) * self.v_th
+        n_dep = getattr(transport, "n_dep", None)
+        if n_dep is None:
+            n_dep = (np.asarray(transport.n_g, dtype=float)
+                     * float(getattr(self.plasma, "f_precursor", 1.0)))
+        self.Gamma_g = 0.25 * np.asarray(n_dep, dtype=float) * self.v_th
 
         # IEADF angular distribution (forward-peaked) -> quadrature.
         self.theta_ion, self.p_ion = self._ion_angle_distribution()
@@ -358,6 +369,19 @@ class RateAssemblySolver:
         # Local D/S ratio (guard against divide-by-zero on near-grazing walls
         # and cap where R_S -> 0, i.e. sub-threshold ions / pure deposition).
         R_DS = np.minimum(R_D / np.clip(R_S, 1e-300, None), 1e9)
+
+        # Diagnostic: track how ion energy translates into sputter leverage.
+        # The sputter/deposition ratio S/D is what determines bias responsiveness;
+        # it must reach the ~0.1-0.3 regime for gap-fill to "see" the bias slider.
+        if log.isEnabledFor(logging.DEBUG):
+            rs_max, rd_max = float(np.max(R_S)), float(np.max(R_D))
+            sd = rs_max / rd_max if rd_max > 0 else 0.0
+            log.debug(
+                "E_ion=%.1f eV | f_precursor=%.3f | R_S_max=%.3e R_D_max=%.3e "
+                "| S/D=%.3f | Y_bar_max=%.3e",
+                self.E_i_eV, float(getattr(self.plasma, "f_precursor", 1.0)),
+                rs_max, rd_max, sd, float(np.max(Y_bar)),
+            )
 
         return RateState(
             z=self.z, R_D=R_D, R_S=R_S, R_redep=R_redep, div_Js=div_Js,

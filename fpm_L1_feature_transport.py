@@ -141,7 +141,10 @@ class TransportState:
     width: np.ndarray                    # w(z)                           [m]
     Kn: np.ndarray                       # Knudsen number Kn(z)           [-]
     D_K: np.ndarray                      # Knudsen diffusivity D_K(z)     [m^2/s]
-    n_g: np.ndarray                      # neutral density n_g(z)         [m^-3]
+    n_g: np.ndarray                      # total neutral density n_g(z)   [m^-3]
+    n_dep: np.ndarray                    # depositing-precursor density   [m^-3]
+                                         #   = f_precursor * n_g(z); only this
+                                         #   Si-bearing fraction feeds R_D.
     phi_s: np.ndarray                    # surface potential phi_s(z)     [V]
     sigma_q: np.ndarray                  # surface charge field           [C/m^2]
     dtheta_charge: np.ndarray            # ion deflection angle           [rad]
@@ -158,6 +161,7 @@ class TransportState:
             "Kn_bottom": float(self.Kn[-1]),
             "n_g_top_m3": float(self.n_g[0]),
             "n_g_bottom_m3": float(self.n_g[-1]),
+            "n_dep_top_m3": float(self.n_dep[0]),
             "phi_s_top_V": float(self.phi_s[0]),
             "phi_s_bottom_V": float(self.phi_s[-1]),
             "dtheta_bottom_deg": float(np.degrees(self.dtheta_charge[-1])),
@@ -432,13 +436,19 @@ class FeatureTransportSolver:
         V_trench = float(n_g[-1] / n_g[0])
         V_clausing = self.clausing_transmission()
 
+        # Depositing-precursor density: only the Si-bearing feed fraction builds
+        # film. Total n_g still sets the gas-phase mean free path / Knudsen number;
+        # n_dep is what L2/L3 must use for the deposition flux R_D.
+        f_precursor = float(getattr(self.plasma, "f_precursor", 1.0))
+        n_dep = n_g * f_precursor
+
         # Differential charging via 2-D Poisson.
         phi_s = self._solve_charging(z)          # caches 2-D fields on self
         sigma_q = self._charge_field(z)
         dtheta = self._deflection_angle(z)
 
         return TransportState(
-            z=z, width=w, Kn=Kn, D_K=D_K, n_g=n_g, phi_s=phi_s,
+            z=z, width=w, Kn=Kn, D_K=D_K, n_g=n_g, n_dep=n_dep, phi_s=phi_s,
             sigma_q=sigma_q, dtheta_charge=dtheta, V_trench=V_trench,
             V_trench_clausing=V_clausing, mean_free_path_m=self.mfp,
         )

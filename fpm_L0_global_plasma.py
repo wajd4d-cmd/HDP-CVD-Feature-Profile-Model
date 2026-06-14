@@ -149,6 +149,11 @@ class PlasmaState:
     mean_ion_energy_ev: float            # <eps_i> delivered to wafer       [eV]
     ion_energy_spread_ev: float          # IEDF peak-to-peak width dE       [eV]
     ieadf: "IEADF" = field(repr=False)   # ion energy-angle distribution
+    f_precursor: float = 1.0             # film-forming (Si-bearing) mole fraction [-]
+                                         #   fraction of the neutral flux that
+                                         #   actually deposits film; the inert
+                                         #   sputter gas (Ar) and excess oxidizer
+                                         #   do NOT contribute to R_D.
 
     def as_dict(self) -> Dict[str, float]:
         """Flat dictionary of scalar outputs (IEADF excluded)."""
@@ -164,6 +169,7 @@ class PlasmaState:
             "debye_length_m": self.debye_length_m,
             "mean_ion_energy_eV": self.mean_ion_energy_ev,
             "ion_energy_spread_eV": self.ion_energy_spread_ev,
+            "f_precursor": self.f_precursor,
         }
 
 
@@ -592,11 +598,21 @@ class GlobalPlasmaSolver:
         ieadf = IEADF(mean_energy_ev=mean_eps, spread_ev=dE,
                       ion_temp_ev=self.inp.ion_temp_ev)
 
+        # Film-forming precursor fraction: only the Si-bearing feed (SiH4) builds
+        # SiO2 film. The inert sputter gas (Ar) and excess oxidizer do not, so the
+        # *depositing* neutral flux is this fraction of the total. Routing R_D
+        # through this (instead of the total n_g) restores the physical
+        # sputter/deposition balance and makes gap-fill respond to ion energy.
+        f_prec = sum(f for s, f in self.frac.items() if "Si" in s)
+        if not (0.0 < f_prec <= 1.0):
+            f_prec = 1.0                                        # no Si feed -> no-op
+
         return PlasmaState(
             T_e=T_e, n_e=n_e, x_eedf=self.x_eedf, V_sheath=V_sh, V_plasma=V_p,
             n_g=self.n_g, m_ion_eff_amu=self.m_ion_amu,
             sheath_thickness_m=s_sheath, debye_length_m=lam_de,
             mean_ion_energy_ev=mean_eps, ion_energy_spread_ev=dE, ieadf=ieadf,
+            f_precursor=f_prec,
         )
 
 
