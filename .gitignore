@@ -1,1 +1,8 @@
 ﻿.env
+
+# Diagnostic / verification harness (not part of the shipped model)
+_diag.py
+
+# Python build artifacts
+__pycache__/
+*.pyc
