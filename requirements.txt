@@ -1,4 +1,9 @@
-numpy
-scipy
-matplotlib
-streamlit
+# HDP-CVD Feature Profile Model — runtime dependencies (pinned for Streamlit Cloud)
+# Every external import across dashboard.py and fpm_L0..L4 resolves to one of these
+# four packages; all other imports are Python standard library.
+#
+# numpy>=2.0 is required: the model uses np.trapezoid (added in NumPy 2.0).
+numpy==2.4.4
+scipy==1.17.1
+matplotlib==3.11.0
+streamlit==1.58.0
