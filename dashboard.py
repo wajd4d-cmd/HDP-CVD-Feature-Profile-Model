@@ -93,14 +93,42 @@ def run_until_pinch(rate):
 
 
 # =============================================================================
+# Cached end-to-end simulation (keyed on the recipe -> live slider reactivity)
+# =============================================================================
+@st.cache_data(show_spinner=False)
+def simulate(power_w: float, rf_bias_v: float, pressure_mtorr: float) -> dict:
+    """
+    Run the full L0 -> L4 pipeline for one recipe and return a plain, picklable
+    result bundle. Cached on (power, bias, pressure) so each distinct slider
+    setting is solved once; revisiting a setting is instant. Because the result
+    is a dict of arrays/scalars (no live solver handle), Streamlit can hash and
+    persist it cleanly across reruns.
+    """
+    rate   = build_velocity_field(power_w, pressure_mtorr, rf_bias_v)
+    solver = run_until_pinch(rate)
+    state  = solver.state()
+    return {
+        "phi": state.phi, "x": solver.x, "z": solver.z,
+        "depth_m": solver.geom.depth_m,
+        "pinch_off": bool(state.pinch_off),
+        "void_area_m2": float(state.void_area_m2),
+        "void_fraction": float(state.void_fraction),
+        "seal_depth_m": float(state.seal_depth_m),
+        "fill_fraction": float(state.fill_fraction),
+        "t": float(state.t),
+        "summary": state.summary(),
+    }
+
+
+# =============================================================================
 # Render -> matplotlib Figure (ported from visualizer.render; returns the fig)
 # =============================================================================
-def build_trench_figure(solver, power_w: float, rf_bias_v: float):
+def build_trench_figure(res: dict, power_w: float, rf_bias_v: float):
     """Plot solid material, sealed void, and the interface contour; return Figure."""
-    state = solver.state()
-    phi   = state.phi                                  # (nz, nx) [m]
-    x_nm  = solver.x * 1e9
-    z_nm  = solver.z * 1e9
+    phi   = res["phi"]                                 # (nz, nx) [m]
+    x_nm  = res["x"] * 1e9
+    z_nm  = res["z"] * 1e9
+    depth_nm = res["depth_m"] * 1e9
 
     # Identify sealed-void cells (open region NOT vented to the top row).
     void_mask = np.zeros_like(phi, dtype=float)
@@ -135,12 +163,12 @@ def build_trench_figure(solver, power_w: float, rf_bias_v: float):
                  f"{power_w:.0f} W / {rf_bias_v:.0f} V bias, "
                  f"AR {ASPECT_RATIO:.0f}:1 trench", fontsize=11, fontweight="bold")
 
-    if state.pinch_off:
+    if res["pinch_off"]:
         ax.annotate(
-            f"SEALED VOID\n{state.void_area_m2 * 1e18:,.0f} nm²  "
-            f"({state.void_fraction * 100:.0f}% of trench)\n"
-            f"seal @ z ≈ {state.seal_depth_m * 1e9:.0f} nm",
-            xy=(0.0, state.seal_depth_m * 1e9 + 0.25 * solver.geom.depth_m * 1e9),
+            f"SEALED VOID\n{res['void_area_m2'] * 1e18:,.0f} nm²  "
+            f"({res['void_fraction'] * 100:.0f}% of trench)\n"
+            f"seal @ z ≈ {res['seal_depth_m'] * 1e9:.0f} nm",
+            xy=(0.0, res["seal_depth_m"] * 1e9 + 0.25 * depth_nm),
             xytext=(0.62, 0.30), textcoords="axes fraction",
             ha="left", va="center", fontsize=9, color=C_VOID, fontweight="bold",
             arrowprops=dict(arrowstyle="->", color=C_VOID, lw=1.4))
@@ -181,44 +209,40 @@ st.sidebar.caption(
     f"{FLOWS_SCCM['Ar']:.0f}/{FLOWS_SCCM['O2']:.0f}/{FLOWS_SCCM['SiH4']:.0f} sccm"
 )
 
-# --- Main panel: run + results ------------------------------------------------
-run = st.button("▶ Run Simulation", type="primary")
+# --- Main panel: live results (recompute reactively on every slider change) ---
+# The simulation is cached on the recipe, so moving a slider re-solves the full
+# L0 -> L4 chain and re-renders the trench automatically; a previously seen
+# recipe returns instantly from cache.
+try:
+    with st.spinner("Solving plasma → transport → kinetics → level set …"):
+        res = simulate(float(rf_power), float(rf_bias), float(pressure))
+    fig = build_trench_figure(res, float(rf_power), float(rf_bias))
+except Exception as exc:      # surface solver errors instead of a blank screen
+    st.exception(exc)
+    st.stop()
 
-if run:
-    try:
-        with st.spinner("Solving plasma → transport → kinetics → level set …"):
-            rate   = build_velocity_field(float(rf_power), float(pressure), float(rf_bias))
-            solver = run_until_pinch(rate)
-            state  = solver.state()
-            fig    = build_trench_figure(solver, float(rf_power), float(rf_bias))
-    except Exception as exc:  # surface solver errors instead of a blank screen
-        st.exception(exc)
-        st.stop()
+col_plot, col_diag = st.columns([3, 2])
 
-    col_plot, col_diag = st.columns([3, 2])
+with col_plot:
+    st.pyplot(fig)
 
-    with col_plot:
-        st.pyplot(fig)
+with col_diag:
+    st.subheader("Diagnostics")
+    st.metric("Final deposition time", f"{res['t']:.2f} s")
+    st.metric("Fill fraction", f"{res['fill_fraction'] * 100:.1f} %")
 
-    with col_diag:
-        st.subheader("Diagnostics")
-        st.metric("Final deposition time", f"{state.t:.2f} s")
-        st.metric("Fill fraction", f"{state.fill_fraction * 100:.1f} %")
+    if res["pinch_off"]:
+        st.error(
+            f"❌ VOID DETECTED — pinch-off at t = {res['t']:.2f} s\n\n"
+            f"Void area {res['void_area_m2'] * 1e18:,.0f} nm² "
+            f"({res['void_fraction'] * 100:.0f}% of trench), "
+            f"seal depth ≈ {res['seal_depth_m'] * 1e9:.0f} nm."
+        )
+    else:
+        st.success(
+            f"✅ VOID-FREE FILL — no pinch-off within {T_MAX_S:.0f} s. "
+            f"Trench filled to {res['fill_fraction'] * 100:.1f}%."
+        )
 
-        if state.pinch_off:
-            st.error(
-                f"❌ VOID DETECTED — pinch-off at t = {state.t:.2f} s\n\n"
-                f"Void area {state.void_area_m2 * 1e18:,.0f} nm² "
-                f"({state.void_fraction * 100:.0f}% of trench), "
-                f"seal depth ≈ {state.seal_depth_m * 1e9:.0f} nm."
-            )
-        else:
-            st.success(
-                f"✅ VOID-FREE FILL — no pinch-off within {T_MAX_S:.0f} s. "
-                f"Trench filled to {state.fill_fraction * 100:.1f}%."
-            )
-
-        with st.expander("Full state summary"):
-            st.json(state.summary())
-else:
-    st.info("Set the recipe in the sidebar and press **Run Simulation**.")
+    with st.expander("Full state summary"):
+        st.json(res["summary"])

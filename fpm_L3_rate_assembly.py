@@ -78,7 +78,12 @@ class SputterTarget:
     Z1: float = 18.0             # projectile atomic number (Ar)      [-]
     M2_amu: float = 20.0         # effective target mass (SiO2 avg)   [amu]
     Z2: float = 10.0             # effective target Z (SiO2 avg)      [-]
-    U_s_ev: float = 6.4          # surface binding energy             [eV] (4-8)
+    U_s_ev: float = 4.0          # surface binding energy             [eV] (4-8)
+                                 # Calibrated to the lower end of the SiO2 range
+                                 # so the IEADF-averaged S/D ratio reaches the
+                                 # ~0.1-0.3 responsive band at typical bias; at
+                                 # U_s=6.4 the threshold factor suppressed sputter
+                                 # to S/D~0.03 and the profile was bias-insensitive.
     Q: float = 1.0               # dimensionless yield factor         [-] (~0.5-1.5)
     s_threshold_exp: float = 2.5 # threshold exponent in (1-sqrt(Eth/E))^s
     f_angular: float = 2.0       # Yamamura angular exponent f        [-]
